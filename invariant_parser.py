@@ -17,6 +17,9 @@ if __name__ == "__main__":
     # query = TLAPLUS_LANGUAGE.query('(def_eq \"≜\") @capture')
     # captures = query.captures(tree.root_node)
     # print(captures['capture'])
+    def walk_tree(node, depth=0):
+        print("  " * depth + f"Node type: {node.type}, Text: {node.text.decode('utf-8')}")
+        for child in node.children:
+            walk_tree(child, depth + 1)
 
-    root = tree.root_node
-    print(root)
+    walk_tree(tree.root_node)
