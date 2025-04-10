@@ -90,7 +90,7 @@ class record_literal(complex):
         Convert a record literal to a C struct initializer.
         Example: TLA+ [a -> "apple", b -> 2] -> C code: {.a = "apple", .b = 2}
         """
-        valid_children = [child for child in self.node.children if child.type not in ("[", "]", ",")]
+        valid_children = [child for child in self.node.children if child.type not in ("[", "]", ",", "comment")]
         fields = []
         # Process every 3 valid children as a record field.
         for i in range(0, len(valid_children), 3):
@@ -134,12 +134,46 @@ class function_literal_record_literal(function_literal):
 class function_literal_function_literal(function_literal):
     def to_c(self):
         pass
+class if_then_else(expression):
+    def to_c(self):
+        if_node = self.node.children[1]
+        then_node = self.node.children[3]
+        else_node = self.node.children[5]
+
+        if_expr = get_value(if_node)
+        then_expr = get_value(then_node)
+        else_expr = get_value(else_node)
+
+        return f"(({if_expr.to_c()}) ? ({then_expr.to_c()}) : ({else_expr.to_c()}))"
+
+
+# --- Infix Operator ---
+class bound_infix_op(expression):
+    # Big lookup table of lambdas
+    # Fill this out with all the TLA+ operators eventually
+    ops = {
+        "implies": lambda x, y: f"(({x}) && (!({y})))",
+        "eq": lambda x, y: f"(({x}) == ({y}))",
+    }
+
+    def to_c(self):
+        operator = self.node.children[1]
+        left_operand = self.node.children[0]
+        right_operand = self.node.children[2]
+
+        left_expr = get_value(left_operand)
+        right_expr = get_value(right_operand)
+
+        return self.ops[operator.type](left_expr.to_c(), right_expr.to_c())
 
 # --- Misc. Classes ---
-
 class identifier_ref(expression):
     def to_c(self):
         return self.node.text.decode("utf-8") 
+
+class comment(expression):
+    def to_c(self):
+        return self.node.text.decode("utf-8").replace("\\*", "//") 
 
 # --- Helper Factory Function ---
 
@@ -157,12 +191,16 @@ def get_value(node):
         "record_literal": record_literal,
         "function_literal": function_literal,
         "identifier_ref": identifier_ref,
+        "identifier": identifier_ref,
+        "comment": comment,
+        "if_then_else": if_then_else,
+        "bound_infix_op": bound_infix_op,
     }
     cls = type_map.get(node.type)
     if cls:
         return cls(node)
     else:
-        raise ValueError(f"Unsupported node type: {node.type}")
+        raise ValueError(f"Unsupported node type: {node.type}\n\tNode start: {node.start_point}\n\tNode text: {node.text.decode('utf-8')}")
 
 # --- Parsing Function ---
 
