@@ -4,221 +4,419 @@ from abc import ABC, abstractmethod
 
 TLAPLUS_LANGUAGE = Language(tstla.language())
 
-# --- Basic Classes ---
+always = []
+eventually = []
 
-class expression(ABC):
-    """
-    Base class for TLA+ expressions.
-    Provides a common interface for conversion to C.
-    """
+def convert_to_ast_node(node):
+    try:
+        ast_class = globals()[node.type]
+    except KeyError:
+        raise ValueError(f"No AST class found for node type: {node.type}")
+    return ast_class(node)
+
+class base(ABC):
     def __init__(self, node):
         self.node = node
 
     @abstractmethod
     def to_c(self):
-        """
-        Convert the expression to its C code equivalent.
-        """
         pass
 
-class value(expression):
-    """
-    Base class for TLA+ values.
-    """
+class _expr(ABC):
+    def __init__(self, node):
+        self.node = node
+
+    @abstractmethod
+    def to_c(self):
+        pass
+
+class _number(_expr):
     pass
 
-# --- Primitive Value Classes ---
-
-class primitive(value):
-    """
-    Base class for TLA+ primitive values.
-    """
-    pass
-
-class string(primitive):
+class nat_number(_number):
     def to_c(self):
-        # Returns a C string literal.
-        return f"{self.node.text.decode("utf-8")}"
-
-class boolean(primitive):
-    def to_c(self):
-        # Returns the C boolean literal.
-        return "true" if self.node.text == b"TRUE" else "false"
-
-class nat_number(primitive):
-    def to_c(self):
-        # Returns the numeric literal as-is.
         return self.node.text.decode("utf-8")
 
-# --- Complex Value Classes ---
+class real_number(_number):
+    def to_c(self):
+        return self.node.text.decode("utf-8")
 
-class complex(value):
-    """
-    Base class for TLA+ complex values.
-    """
+class binary_number(_number):
+    def to_c(self):
+        return self.node.text.decode("utf-8")
+
+class octal_number(_number):
+    def to_c(self):
+        return self.node.text.decode("utf-8")
+
+class hex_number(_number):
+    def to_c(self):
+        return self.node.text.decode("utf-8")
+
+class string(_expr):
+    def to_c(self):
+        return f"{self.node.text.decode("utf-8")}"
+
+class boolean(_expr):
+    def to_c(self):
+        return "true" if self.node.text == b"TRUE" else "false"
+
+class _primitive_value_set(_expr):
     pass
 
-class finite_set_literal(complex):
+class string_set(_primitive_value_set):
     def to_c(self):
-        """
-        Convert a finite set literal to a C array literal.
-        Example: TLA+ {1, 2, 3} -> C code: {1, 2, 3}
-        """
+        return "STRING"
+
+class boolean_set(_primitive_value_set):
+    def to_c(self):
+        return "BOOLEAN"
+
+class _number_set(_primitive_value_set):
+    pass
+
+class nat_number_set(_number_set):
+    def to_c(self):
+        return "Nat"
+
+class int_number_set(_number_set):
+    def to_c(self):
+        return "Int"
+
+class real_number_set(_number_set):
+    def to_c(self):
+        return "Real"
+
+class parentheses(_expr):
+    def __init__(self, node):
+        super().__init__(node)
+        inner_node = node.children[0]
+        self.inner_expr = convert_to_ast_node(inner_node)
+
+    def to_c(self):
+        return self.inner_expr.to_c()
+
+class identifier(_expr):
+    def to_c(self):
+        return self.node.text.decode("utf-8")
+
+class identifier_ref(identifier):
+    pass
+
+class finite_set_literal(_expr):
+    def to_c(self):
         elements = []
         valid_children = [child for child in self.node.children if child.type not in ("{", "}", ",")]
         for child in valid_children:
-            elem = get_value(child)
+            elem = convert_to_ast_node(child)
             elements.append(elem.to_c())
         return "{" + ", ".join(elements) + "}"
 
-class tuple_literal(complex):
+class tuple_literal(_expr):
     def to_c(self):
-        """
-        Convert a tuple literal to a C array literal.
-        Example: TLA+ <<1, 2, 3>> -> C code: {1, 2, 3}
-        """
         elements = []
         valid_children = [child for child in self.node.children if child.type not in ("langle_bracket", "rangle_bracket", ",")]
         for child in valid_children:
-            elem = get_value(child)
+            elem = convert_to_ast_node(child)
             elements.append(elem.to_c())
         return "{" + ", ".join(elements) + "}"
 
-class record_literal(complex):
+class record_literal(_expr):
     def to_c(self):
-        """
-        Convert a record literal to a C struct initializer.
-        Example: TLA+ [a -> "apple", b -> 2] -> C code: {.a = "apple", .b = 2}
-        """
-        valid_children = [child for child in self.node.children if child.type not in ("[", "]", ",", "comment")]
         fields = []
-        # Process every 3 valid children as a record field.
+        valid_children = [child for child in self.node.children if child.type not in ("[", "]", ",", "comment")]
         for i in range(0, len(valid_children), 3):
             key_node = valid_children[i]
-            # valid_children[i+1] is the mapping operator and is ignored.
             value_node = valid_children[i + 2]
-            value_obj = get_value(value_node)
+            value_obj = convert_to_ast_node(value_node)
             fields.append(f".{key_node.text.decode("utf-8")} = {value_obj.to_c()}")
         return "{" + ", ".join(fields) + "}"
 
-class function_literal(complex):
-    """
-    Base class for TLA+ function literals.
-    """
+class _op(ABC):
+    def __init__(self, node):
+        self.node = node
+    
+    @abstractmethod
+    def to_c(self):
+        pass
+
+class prefix_op_symbol(_op):
+    def to_c(self):
+        converted_node = convert_to_ast_node(self.node.children[0])
+        return converted_node.to_c()
+
+class lnot(_op):
+    def to_c(self):
+        return "!"
+
+class negative(_op):
+    def to_c(self):
+        return "-"
+
+class negative_dot(negative):
     pass
 
-class function_literal_string(function_literal):
-    def to_c(self):
-        pass
-
-class function_literal_boolean(function_literal):
-    def to_c(self):
-        pass
-
-class function_literal_nat_number(function_literal):
-    def to_c(self):
-        pass
-
-class function_literal_finite_set_literal(function_literal):
-    def to_c(self):
-        pass
-
-class function_literal_tuple_literal(function_literal):
-    def to_c(self):
-        pass
-
-class function_literal_record_literal(function_literal):
-    def to_c(self):
-        pass
-
-class function_literal_function_literal(function_literal):
-    def to_c(self):
-        pass
-class if_then_else(expression):
-    def to_c(self):
-        if_node = self.node.children[1]
-        then_node = self.node.children[3]
-        else_node = self.node.children[5]
-
-        if_expr = get_value(if_node)
-        then_expr = get_value(then_node)
-        else_expr = get_value(else_node)
-
-        return f"(({if_expr.to_c()}) ? ({then_expr.to_c()}) : ({else_expr.to_c()}))"
-
-
-# --- Infix Operator ---
-class bound_infix_op(expression):
-    # Big lookup table of lambdas
-    # Fill this out with all the TLA+ operators eventually
-    ops = {
-        "implies": lambda x, y: f"(({x}) && (!({y})))",
-        "eq": lambda x, y: f"(({x}) == ({y}))",
-    }
+class always(_op):
+    def __init__(self, node):
+        super().__init__(node)
+        always.append(node)
 
     def to_c(self):
-        operator = self.node.children[1]
-        left_operand = self.node.children[0]
-        right_operand = self.node.children[2]
+        return ""
 
-        left_expr = get_value(left_operand)
-        right_expr = get_value(right_operand)
+class eventually(_op):
+    def __init__(self, node):
+        super().__init__(node)
+        eventually.append(node)
 
-        return self.ops[operator.type](left_expr.to_c(), right_expr.to_c())
-
-# --- Misc. Classes ---
-class identifier_ref(expression):
     def to_c(self):
-        return self.node.text.decode("utf-8") 
+        return ""
 
-class comment(expression):
+class infix_op_symbol(_op):
     def to_c(self):
-        return self.node.text.decode("utf-8").replace("\\*", "//") 
+        converted_node = convert_to_ast_node(self.node.children[0])
+        return converted_node.to_c()
 
-# --- Helper Factory Function ---
+class equiv(_op):
+    def to_c(self):
+        return "=="
 
-def get_value(node):
-    """
-    Factory function to create a value instance from a tree-sitter node.
-    Assumes that node.type corresponds to one of the class names (in lowercase).
-    """
-    type_map = {
-        "string": string,
-        "boolean": boolean,
-        "nat_number": nat_number,
-        "finite_set_literal": finite_set_literal,
-        "tuple_literal": tuple_literal,
-        "record_literal": record_literal,
-        "function_literal": function_literal,
-        "identifier_ref": identifier_ref,
-        "identifier": identifier_ref,
-        "comment": comment,
-        "if_then_else": if_then_else,
-        "bound_infix_op": bound_infix_op,
-    }
-    cls = type_map.get(node.type)
-    if cls:
-        return cls(node)
-    else:
-        raise ValueError(f"Unsupported node type: {node.type}\n\tNode start: {node.start_point}\n\tNode text: {node.text.decode('utf-8')}")
+class iff(_op):
+    def to_c(self):
+        return "=="
 
-# --- Parsing Function ---
+class land(_op):
+    def to_c(self):
+        return "&&"
+
+class lor(_op):
+    def to_c(self):
+        return "||"
+
+class assign(_op):
+    def to_c(self):
+        return "="
+
+class eq(_op):
+    def to_c(self):
+        return "=="
+
+class neq(_op):
+    def to_c(self):
+        return "!="
+
+class lt(_op):
+    def to_c(self):
+        return "<"
+
+class gt(_op):
+    def to_c(self):
+        return ">"
+
+class leq(_op):
+    def to_c(self):
+        return "<="
+
+class geq(_op):
+    def to_c(self):
+        return ">="
+
+class plus(_op):
+    def to_c(self):
+        return "+"
+
+class plusplus(_op):
+    def to_c(self):
+        return "++"
+
+class mod(_op):
+    def to_c(self):
+        return "%"
+
+class vert(_op):
+    def to_c(self):
+        return "|"
+
+class vertvert(_op):
+    def to_c(self):
+        return "||"
+
+class minus(_op):
+    def to_c(self):
+        return "-"
+
+class minusminus(_op):
+    def to_c(self):
+        return "--"
+
+class amp(_op):
+    def to_c(self):
+        return "&"
+
+class ampamp(_op):
+    def to_c(self):
+        return "&&"
+
+class mul(_op):
+    def to_c(self):
+        return "*"
+
+class slash(_op):
+    def to_c(self):
+        return "/"
+
+class dots_3(_op):
+    def to_c(self):
+        return "..."
+
+class hashhash(_op):
+    def to_c(self):
+        return "##"
+
+class cdot(_op):
+    def to_c(self):
+        return "*"
+
+class postfix_op_symbol(_op):
+    def to_c(self):
+        converted_node = convert_to_ast_node(self.node.children[0])
+        return converted_node.to_c()
+
+class sup_plus(_op):
+    def to_c(self):
+        return "^+"
+
+class asterisk(_op):
+    def to_c(self):
+        return "^*"
+
+class sup_hash(_op):
+    def to_c(self):
+        return "^#"
+
+class prime(_op):
+    def to_c(self):
+        return "'"
+
+class tuple_of_identifiers(_expr):
+    def to_c(self):
+        elements = []
+        valid_children = [child for child in self.node.children if child.type not in ("langle_bracket", "rangle_bracket", ",")]
+        for child in valid_children:
+            elem = convert_to_ast_node(child)
+            elements.append(elem.to_c())
+        return "{" + ", ".join(elements) + "}"
+
+class def_eq(base):
+    def to_c(self):
+        return "=="
+
+class set_in(base):
+    def to_c(self):
+        return "in"
+
+class gets(base):
+    def to_c(self):
+        return "="
+
+class forall(base):
+    def to_c(self):
+        return "FORALL"
+
+class exists(base):
+    def to_c(self):
+        return "EXISTS"
+
+class temporal_forall(base):
+    def to_c(self):
+        return "TEMP_FORALL"
+
+class temporal_exists(base):
+    def to_c(self):
+        return "TEMP_EXISTS"
+
+class all_map_to(base):
+    def to_c(self):
+        return "ALL_MAP_TO"
+
+class maps_to(base):
+    def to_c(self):
+        return "->"
+
+class langle_bracket(base):
+    def to_c(self):
+        return "<<"
+
+class rangle_bracket(base):
+    def to_c(self):
+        return ">>"
+
+class rangle_bracket_sub(base):
+    def to_c(self):
+        return ">>"
+
+class case_box(base):
+    def to_c(self):
+        return "[]"
+
+class case_arrow(base):
+    def to_c(self):
+        return "->"
+
+class colon(base):
+    def to_c(self):
+        return ":"
+
+class address(base):
+    def to_c(self):
+        return "@"
+
+class label_as(base):
+    def to_c(self):
+        return "::"
+
+class placeholder(base):
+    def to_c(self):
+        return "_"
+
+class bullet_conj(base):
+    def to_c(self):
+        return "&&"
+
+class bullet_disj(base):
+    def to_c(self):
+        return "||"
+
+class unit(base):
+    pass
+
+class _definition(unit):
+    pass
+
+class operator_definition(_definition):
+    def to_c(self):
+        converted_node = convert_to_ast_node(self.node.children[2])
+        return converted_node.to_c()
+
+class source_file(base):
+    def to_c(self):
+        converted_node = convert_to_ast_node(self.node.children[0])
+        return converted_node.to_c()
+
+class module(base):
+    def to_c(self):
+        result = []
+        for child in self.node.children:
+            if child.type == "operator_definition":
+                converted_node = convert_to_ast_node(child)
+                result.append(converted_node.to_c())
+        return result
 
 def parse_tla_file(specification, constants, invariants, properties, tla):
-    """
-    Parses a TLA+ specification using tree-sitter, then traverses the AST.
-    Instantiate value objects (using get_value) based on the node types.
-    """
     parser = Parser(TLAPLUS_LANGUAGE)
     tree = parser.parse(tla)
 
-    # XXX: Testing code
-    def traverse(node):
-        if node.type in ("string", "boolean", "nat_number", "finite_set_literal", "tuple_literal", "record_literal"):
-            value_obj = get_value(node)
-            print(f"C code for {node.type}:", value_obj.to_c())
-        # Recursively traverse all children.
-        for child in node.children:
-            traverse(child)
+    converted_root_node = convert_to_ast_node(tree.root_node)
+    print(converted_root_node.to_c())
+    quit()
 
-    traverse(tree.root_node)
