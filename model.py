@@ -5,8 +5,10 @@ from abc import ABC, abstractmethod
 TLAPLUS_LANGUAGE = Language(tstla.language())
 
 definitions = {}
+variables = []
+constants = []
 
-# TODO: Use TLC model checker from tlc2tools.jar to evaluate the domain
+# TODO: Use TLC model checker from tlc2tools.jar to evaluate the domain (Ask Nate if you wanna work on this; He already figured it out)
 def eval_domain(domain):
     pass
 
@@ -17,6 +19,10 @@ class func:
         self.domain = domain
         self.expr = expr
 
+def _record_definition(a, b):
+    definitions[a] = b
+    return ""
+
 prefixes = {
     "lnot":         lambda x: f"!({x})",
     "negative":     lambda x: f"-{x}",
@@ -25,12 +31,12 @@ prefixes = {
 
 infixes = {
     "implies":   lambda a, b: f"!({a}) || ({b})",
-    "equiv":     lambda a, b: definitions[a] = b,
+    "equiv":     lambda a, b: _record_definition(a,b),
     "iff":       lambda a, b: f"({a}) == ({b})",
     "land":      lambda a, b: f"({a}) && ({b})",
     "lor":       lambda a, b: f"({a}) || ({b})",
     "assign":    lambda a, b: f"({a}) = ({b})",
-    "bnf_rule":  lambda a, b: definitions[a] = b,
+    "bnf_rule":  lambda a, b: _record_definition(a,b),
     "eq":        lambda a, b: f"({a}) == ({b})",
     "neq":       lambda a, b: f"({a}) != ({b})",
     "lt":        lambda a, b: f"({a}) < ({b})",
@@ -134,7 +140,7 @@ class bound_op(_expr):
         parameters = []
         for node in valid_parameter_nodes:
             parameter = convert_to_ast_node(node)
-            parameters.append(parameter.to_c))
+            parameters.append(parameter.to_c)
         parameters_str = ", ".join(str(p) for p in parameters)
         return f"{name}({parameters_str})"
 
@@ -292,45 +298,102 @@ class tuple_of_identifiers(_expr):
 class _unit(ast_node):
     pass
 
+class variable_declaration(_unit):
+    def to_c(self):
+        id_nodes = [
+            child for child in self.node.children
+            if child.type == "identifier"
+        ]
+        names = [n.text.decode("utf-8") for n in id_nodes]
+        for name in names:
+            variables.append(name)
+
+class constant_declaration(_unit):
+    # TODO
+    pass
+
 class _definition(_unit):
     pass
 
 class operator_definition(_definition):
-    # TODO
     def to_c(self):
-        symbol_node = self.node.child_by_field_name('name')
-        symbol = symbol_node.text.decode("utf-8")
-        definition_node = self.node.child_by_field_name('definition')
-        definition = convert_to_ast_node(definition_node)
-        if symbol in prefixes:
-            parameter_node = self.node.children[1]
-            parameter = convert_to_ast_node(parameter_node)
-            definitions[f"{symbol}{parameter.to_c()}"] = definition.to_c()
-        if symbol in infixes:
-            parameter_a_node = self.node.children[0]
-            parameter_a = convert_to_ast_node(parameter_a_node)
-            parameter_b_node = self.node.children[2]
-            parameter_b = convert_to_ast_node(parameter_b_node)
-            definitions[f"{parameter_a.to_c()} {symbol} {parameter_b.to_c()}"] = definition.to_c()
-        if symbol in postfixes:
-            parameter_node = self.node.children[0]
-            parameter = convert_to_ast_node(parameter_node)
-            definitions[f"{parameter.to_c()}{symbol}"] = definition.to_c()
-
-        raise NotImplementedError(f"Unexpected operator: {symbol}")
-
+        if self.node.children[0].type == "identifier":
+            id_node = self.node.children[0]
+            identifier = convert_to_ast_node(id_node)
+            definition_node = self.node.child_by_field_name('definition')
+            definition = convert_to_ast_node(definition_node)
+            definitions[identifier.to_c()] = definition.to_c()
+        else:
+            symbol_node = self.node.child_by_field_name('name')
+            symbol = symbol_node.text.decode("utf-8")
+            definition_node = self.node.child_by_field_name('definition')
+            definition = convert_to_ast_node(definition_node)
+            if symbol in prefixes:
+                parameter_node = self.node.children[1]
+                parameter = convert_to_ast_node(parameter_node)
+                definitions[f"{symbol}{parameter.to_c()}"] = definition.to_c()
+            if symbol in infixes:
+                parameter_a_node = self.node.children[0]
+                parameter_a = convert_to_ast_node(parameter_a_node)
+                parameter_b_node = self.node.children[2]
+                parameter_b = convert_to_ast_node(parameter_b_node)
+                definitions[f"{parameter_a.to_c()} {symbol} {parameter_b.to_c()}"] = definition.to_c()
+            if symbol in postfixes:
+                parameter_node = self.node.children[0]
+                parameter = convert_to_ast_node(parameter_node)
+                definitions[f"{parameter.to_c()}{symbol}"] = definition.to_c()
+            raise NotImplementedError(f"Unexpected operator: {symbol}")
 
 class function_definition(_definition):
     # TODO
     pass
 
+class module(_unit):
+    def to_c(self):
+        op_def_nodes = [
+            child for child in self.node.children
+            if child.type == "operator_definition"
+        ]
+        op_defs = []
+        for op_def_node in op_def_nodes:
+            op_defs.append(convert_to_ast_node(op_def_node))
+        for op_def in op_defs:
+            op_def.to_c()
 
+        var_dec_nodes = [
+            child for child in self.node.children
+            if child.type == "variable_declaration"
+        ]
+        var_decs = []
+        for var_dec_node in var_dec_nodes:
+            var_decs.append(convert_to_ast_node(var_dec_node))
+        for var_dec in var_decs:
+            var_dec.to_c()
 
-def parse_tla_file(specification, constants, invariants, properties, tla):
+class source_file(ast_node):
+    def to_c(self):
+        module_nodes = [
+            child for child in self.node.children
+            if child.type == "module"
+        ]
+        if not module_nodes:
+            raise NoValidModuleError(f"No valid modules present")
+        modules = []
+        for module_node in module_nodes:
+            modules.append(convert_to_ast_node(module_node))
+        for module in modules:
+            module.to_c()
+
+def parse_tla_file(specification, _constants, invariants, properties, tla):
     parser = Parser(TLAPLUS_LANGUAGE)
     tree = parser.parse(tla)
 
     converted_root_node = convert_to_ast_node(tree.root_node)
-    print(converted_root_node.to_c())
+    converted_root_node.to_c()
+
+    print(f"Definitions: {definitions}")
+    print(f"Variables: {variables}")
+    print(f"Constants: {constants}")
+
     quit()
 
