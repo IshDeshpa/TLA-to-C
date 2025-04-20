@@ -1,22 +1,25 @@
 import tree_sitter_tlaplus as tstla
 from tree_sitter import Language, Parser
 from abc import ABC, abstractmethod
+import pdb
 
 TLAPLUS_LANGUAGE = Language(tstla.language())
+
+_func_counter = 0
 
 definitions = {}
 variables = []
 constants = []
+funcs = {}
 
 # TODO: Use TLC model checker from tlc2tools.jar to evaluate the domain (Ask Nate if you wanna work on this; He already figured it out)
 def eval_domain(domain):
     pass
 
 class func:
-    def __init__(self, kind, args, domain, expr):
+    def __init__(self, kind, bound, expr):
         self.kind = kind
-        self.args = args
-        self.domain = domain
+        self.bound = bound
         self.expr = expr
 
 def _record_definition(a, b):
@@ -196,17 +199,73 @@ class bound_postfix_op(_expr):
         except KeyError: 
             raise NotImplementedError(f"Unexpected operator: {symbol}")
 
-class bounded_quantification(_expr):
-    # TODO
-    pass
+class forall(ast_node):
+    def to_c(self):
+        return "forall"
 
-class unbounded_quantification(_expr):
-    # TODO
-    pass
+class exists(ast_node):
+    def to_c(self):
+        return "exists"
+
+class quantifier_bound(ast_node):
+    def to_c(self):
+        pdb.set_trace()
+        identifier_node = self.node.children[0]
+        identifier = convert_to_ast_node(identifier_node)
+        identifier = identifier.to_c()
+        _set_node = self.node.children[2]
+        _set = _set_node.text.decode("utf-8")
+        return {
+            "identifier": identifier,
+            "set": _set,
+        }
+
+class bounded_quantification(_expr):
+    def to_c(self):
+        global _func_counter
+        quantifier_node = self.node.child_by_field_name('quantifier')
+        quantifier = convert_to_ast_node(quantifier_node)
+        quantifier = quantifier.to_c()
+        bound_node = self.node.child_by_field_name('bound')
+        bound = convert_to_ast_node(bound_node)
+        bound = bound.to_c()
+        expression_node = self.node.child_by_field_name('expression')
+        expression = convert_to_ast_node(expression_node)
+        expression = expression.to_c()
+        function = func(quantifier, bound, expression)
+        name_node = self.node.parent.child_by_field_name('name')
+        if name_node:
+            name = name_node.text.decode("utf-8")
+        else:
+            name = f"func_{_func_counter}"
+            _func_counter += 1
+        funcs[name] = function
+        return f"{name}()"
 
 class choose(_expr):
-    # TODO
-    pass
+    def to_c(self):
+        identifier_node = self.node.child_by_field_name('intro')
+        identifier = convert_to_ast_node(identifier_node)
+        identifier = identifier.to_c()
+        _set_node = self.node.child_by_field_name('set')
+        _set = _set_node.text.decode("utf-8")
+        bound = {
+            "identifier": identifier,
+            "set": _set,
+        }
+        expression_node = self.node.child_by_field_name('expression')
+        expression = convert_to_ast_node(expression_node)
+        expression = expression.to_c()
+        function = func("choose", bound, expression)
+        name_node = self.node.parent.child_by_field_name('name')
+        if name_node:
+            name = name_node.text.decode("utf-8")
+        else:
+            name = f"func_{_func_counter}"
+            _func_counter += 1
+        funcs[name] = function
+        return f"{name}()"
+
 
 class finite_set_literal(_expr):
     def to_c(self):

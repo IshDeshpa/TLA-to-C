@@ -7,6 +7,11 @@ VARIABLES x, y
 ASSUME N ∈ Nat /\ N > 0
 
 (*-----------------------------------------------------------------*)
+(* A bounded quantifier example: for all i in 1..N, i ≤ N       *)
+AllWithinN ==
+  \A i ∈ 1..N : i ≤ N
+
+(*-----------------------------------------------------------------*)
 (* A plain record literal                                        *)
 MyRec ==
   [ foo  |-> x,
