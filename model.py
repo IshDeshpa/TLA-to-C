@@ -13,7 +13,7 @@ constants = []
 funcs = {}
 
 # TODO: Use TLC model checker from tlc2tools.jar to evaluate the domain (Ask Nate if you wanna work on this; He already figured it out)
-def eval_domain(domain):
+def eval_TLC(domain):
     pass
 
 class func:
@@ -277,24 +277,40 @@ class finite_set_literal(_expr):
         return "{" + ", ".join(elements) + "}"
 
 class set_filter(_expr):
-    # TODO
-    pass
+    def to_c(self):
+        text = self.node.text.decode("utf-8")
+        values = eval_TLC(text)
+        return values
 
 class set_map(_expr):
-    # TODO
-    pass
+    def to_c(self):
+        text = self.node.text.decode("utf-8")
+        values = eval_TLC(text)
+        return values
 
 class function_evaluation(_expr):
-    # TODO
-    pass
+    def to_c(self):
+        function_node = self.node.children[0]
+        function = convert_to_ast_node(function_node)
+        function = function.to_c()
+        args_node = self.node.children[2]
+        args = convert_to_ast_node(args_node)
+        args = args.to_c()
+        if function_node.type == "identifier" or function_node.type == "identifier_ref":
+            return f"{function}[{args}]"
+        if function_node.type == "bound_op":
+            return f"{function}[{args}]"
+        if function_node.type == "identifier":
+            return f"{function}[{args}]"
+        if function_node.type == "identifier":
+            return f"{function}[{args}]"
+        raise NotImplementedError("Unexpected type: {function_node.type}"
 
 class function_literal(_expr):
-    # TODO
-    pass
-
-class set_of_functions(_expr):
-    # TODO
-    pass
+    def to_c(self):
+        text = self.node.text.decode("utf-8")
+        values = eval_TLC(text)
+        return values
 
 class record_literal(_expr):
     def to_c(self):
