@@ -59,6 +59,7 @@ infixes = {
     "mul":       lambda a, b: f"({a}) * ({b})",
     "mulmul":    lambda a, b: f"({a}) * ({b})",
     "times":     lambda a, b: f"({a}) * ({b})",
+    "*":        lambda a, b: f"({a}) * ({b})",
 }
 
 postfixes = {}
@@ -109,7 +110,7 @@ class hex_number(_number):
 
 class string(_expr):
     def to_c(self):
-        return f"{self.node.text.decode("utf-8")}"
+        return f"{self.node.text.decode('utf-8')}"
 
 class boolean(_expr):
     def to_c(self):
@@ -179,11 +180,14 @@ class bound_infix_op(_expr):
     def to_c(self):
         symbol_node = self.node.child_by_field_name('symbol')
         symbol = symbol_node.text.decode("utf-8")
+        lhs_node = self.node.child_by_field_name('lhs')
+        lhs = convert_to_ast_node(lhs_node)
+        lhs = lhs.to_c()
         rhs_node = self.node.child_by_field_name('rhs')
         rhs = convert_to_ast_node(rhs_node)
         rhs = rhs.to_c()
         try:
-            return infixes[symbol](rhs)
+            return infixes[symbol](lhs, rhs)
         except KeyError: 
             raise NotImplementedError(f"Unexpected operator: {symbol}")
 
@@ -304,7 +308,7 @@ class function_evaluation(_expr):
             return f"{function}[{args}]"
         if function_node.type == "identifier":
             return f"{function}[{args}]"
-        raise NotImplementedError("Unexpected type: {function_node.type}"
+        raise NotImplementedError("Unexpected type: {function_node.type}")
 
 class function_literal(_expr):
     def to_c(self):
@@ -320,7 +324,7 @@ class record_literal(_expr):
             key_node = valid_children[i]
             value_node = valid_children[i + 2]
             elem = convert_to_ast_node(value_node)
-            fields.append(f".{key_node.text.decode("utf-8")} = {elem.to_c()}")
+            fields.append(f".{key_node.text.decode('utf-8')} = {elem.to_c()}")
         return "{" + ", ".join(fields) + "}"
 
 class set_of_records(_expr):
@@ -331,7 +335,7 @@ class set_of_records(_expr):
             key_node = valid_children[i]
             expr_node = valid_children[i + 2]
             elem = convert_to_ast_node(expr_node)
-            fields.append(f".{key_node.text.decode("utf-8")} = {elem.to_c()}")
+            fields.append(f".{key_node.text.decode('utf-8')} = {elem.to_c()}")
         return "{" + ", ".join(fields) + "}"
 
 class record_value(_expr):
@@ -384,8 +388,16 @@ class variable_declaration(_unit):
             variables.append(name)
 
 class constant_declaration(_unit):
-    # TODO
-    pass
+    def to_c(self):
+        child_nodes = self.node.children
+        
+        for child in child_nodes:
+            if child.type == "identifier":
+                constant_name = child.text.decode("utf-8")
+                constants.append(constant_name)  
+
+            elif child.type == "_op_declaration":
+                raise NotImplementedError(f"Operator constants are not implemented. Found: {child.text.decode('utf-8')}")
 
 class _definition(_unit):
     pass
@@ -421,7 +433,25 @@ class operator_definition(_definition):
 
 class function_definition(_definition):
     # TODO
-    pass
+  def to_c(self):
+        name_node = self.node.child_by_field_name('name')
+        name = convert_to_ast_node(name_node).to_c()
+
+        definition_node = self.node.child_by_field_name('defination')
+        definition = convert_to_ast_node(definition_node).to_c()
+
+        quantifier_bound_node = self.node.child_by_field_name('quantifier_bound')
+        quantifiers = [] 
+        for child in quantifier_bound_node.children:
+            quantifier = convert_to_ast_node(child)
+            quantifiers.append(quantifier.to_c())
+        
+        quantifier_str = ", ".join(quantifiers)
+        function = func(func,quantifier_str, definition)
+
+        funcs[name] = function
+        return f"{name}()"
+
 
 class module(_unit):
     def to_c(self):
@@ -465,6 +495,9 @@ def parse_tla_file(specification, _constants, invariants, properties, tla):
 
     converted_root_node = convert_to_ast_node(tree.root_node)
     converted_root_node.to_c()
+
+    for constant in _constants:
+        constants.append(constant)
 
     print(f"Definitions: {definitions}")
     print(f"Variables: {variables}")
