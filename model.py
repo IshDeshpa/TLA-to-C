@@ -154,7 +154,7 @@ class bound_nonfix_op(_expr):
         symbol = symbol_node.text.decode("utf-8")
         if symbol in prefixes:
             x = self.node.children[2]
-            return prefixes[symbol](x)
+            return prefixes[symbol_node.type](x)
         if symbol in infixes:
             a = self.node.children[2]
             b = self.node.children[3]
@@ -172,7 +172,7 @@ class bound_prefix_op(_expr):
         rhs = convert_to_ast_node(rhs_node)
         rhs = rhs.to_c()
         try:
-            return prefixes[symbol](rhs)
+            return prefixes[symbol_node.type](rhs)
         except KeyError: 
             raise NotImplementedError(f"Unexpected operator: {symbol}")
 
@@ -274,7 +274,7 @@ class choose(_expr):
 class finite_set_literal(_expr):
     def to_c(self):
         elements = []
-        valid_children = [child for child in self.node.children if child.type not in ("{", "}", ",")]
+        valid_children = [child for child in self.nodebreakpoint().children if child.type not in ("langle_bracket", "rangle_bracket", ",")]
         for child in valid_children:
             elem = convert_to_ast_node(child)
             elements.append(elem.to_c())
@@ -363,8 +363,19 @@ class if_then_else(_expr):
         _then = convert_to_ast_node(_then_node)
         _else_node = self.node.children[5]
         _else = convert_to_ast_node(_else_node)
-        return f"({_if.to_eval()}) ? {then.to_c()} : {_else.to_c()}"
+        return f"({_if.to_eval()}) ? {_then.to_c()} : {_else.to_c()}"
 
+# TODO: check this, might be wrong
+class conj_list(_expr):
+    def to_c(self):
+        elements = []
+        items = [child for child in self.node.children if child.type == "conj_item"]
+        for item in items:
+            op_node = item.children[1]
+            op = convert_to_ast_node(op_node)
+            elements.append(op.to_c())
+        return f"(1 {' && '.join(elements)})"
+                        
 class tuple_of_identifiers(_expr):
     def to_c(self):
         elements = []
@@ -504,4 +515,3 @@ def parse_tla_file(specification, _constants, invariants, properties, tla):
     print(f"Constants: {constants}")
 
     quit()
-
