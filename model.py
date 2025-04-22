@@ -476,15 +476,41 @@ class function_definition(_definition):
         return f"{name}()"
 
 # PCAL
+class pcal_assign(_unit):
+    def to_c(self):
+        lhs_node = self.node.children[0].children[0]
+        lhs = convert_to_ast_node(lhs_node)
+        lhs = lhs.to_c()
+        rhs_node = self.node.children[2]
+        rhs = convert_to_ast_node(rhs_node)
+        rhs = rhs.to_c()
+        return f"{lhs} = {rhs};"
+
+class pcal_while(_unit):
+    def to_c(self):
+        return f"while ({convert_to_ast_node(self.node.children[1]).to_c()}) {{ \
+            {convert_to_ast_node(self.node.children[3]).to_c()} \
+        }}"
+
 class pcal_algorithm_body(_unit):
     def to_c(self):
-        pass
+        statements = []
+        # if self.node.child_by_field_name('label'):
+        #     print("label found")
+
+        for child in self.node.children:
+            if child.type in ["pcal_while"]:
+                statement = convert_to_ast_node(child)
+                statements.append(statement.to_c())
+
+        return "\n".join(statements)
 
 class pcal_var_decl(variable_declaration):
     pass
 
 class pcal_algorithm(_unit):
     def to_c(self):
+        global _func_counter
         name_node = self.node.child_by_field_name('name')
         name = convert_to_ast_node(name_node).to_c()
         
@@ -516,6 +542,21 @@ class pcal_algorithm(_unit):
         
         alg_body_node = convert_to_ast_node(alg_body_node)
         alg_body = alg_body_node.to_c()
+
+        name_node = self.node.parent.child_by_field_name('name')
+        if name_node:
+            name = name_node.text.decode("utf-8")
+        else:
+            name = f"func_{_func_counter}"
+            _func_counter += 1
+        
+        print(f"{name}() {{\n" + 
+                alg_body + "\n" + 
+                "}}\n")
+        
+        return (f"{name}() {{\n" + 
+                alg_body + "\n" + 
+                "}\n")
 
 class module(_unit):
     def to_c(self):
