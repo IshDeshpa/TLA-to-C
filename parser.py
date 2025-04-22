@@ -75,9 +75,36 @@ def read_config_file(cfg_file_name):
     return specification, constants, invariants, properties
 
 def read_tla_file(tla_file_name):
-    # Reads the entire TLA file and returns its content.
-    with open(tla_file_name, 'rb') as f:
-        return f.read()
+    """
+    Reads the TLA file and extracts content between
+    "\\* BEGIN TRANSLATION" and "\\* END TRANSLATION".
+    Returns the extracted content as a string.
+    """
+    content = []
+    in_translation_block = False
+
+    with open(tla_file_name, 'r') as f:
+        for line in f:
+            # Check for the start of the translation block.
+            if line.strip().startswith("\\* BEGIN TRANSLATION"):
+                in_translation_block = True
+                continue
+            # Check for the end of the translation block.
+            if line.strip().startswith("\\* END TRANSLATION"):
+                in_translation_block = False
+                continue
+            # If not inside the translation block, collect the line.
+            if not in_translation_block:
+                content.append(line)
+
+    # Preprocess the collected content
+    preproc = ''.join(content).encode('utf-8')
+
+    # Write the preprocessed content to a file
+    with open("preprocessor_output.tla", "wb") as output_file:
+        output_file.write(preproc)
+
+    return preproc
 
 def main():
     # Parse args

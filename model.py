@@ -60,6 +60,18 @@ infixes = {
     "mulmul":    lambda a, b: f"({a}) * ({b})",
     "times":     lambda a, b: f"({a}) * ({b})",
     "*":        lambda a, b: f"({a}) * ({b})",
+    # Must insert this in code for IN_ARRAY to work
+    # #define IN_ARRAY(elem, array) ({                        \
+    #     bool found = false;                                 \
+    #     for (size_t i = 0; i < sizeof(array)/sizeof(*array); ++i) { \
+    #         if ((array)[i] == (elem)) {                     \
+    #             found = true;                               \
+    #             break;                                      \
+    #         }                                               \
+    #     }                                                   \
+    #     found;                                              \
+    # })
+    "in":        lambda a, b: f"IN_ARRAY({a}, {b})",
 }
 
 postfixes = {}
@@ -187,7 +199,7 @@ class bound_infix_op(_expr):
         rhs = convert_to_ast_node(rhs_node)
         rhs = rhs.to_c()
         try:
-            return infixes[symbol](lhs, rhs)
+            return infixes[symbol_node.type](lhs, rhs)
         except KeyError: 
             raise NotImplementedError(f"Unexpected operator: {symbol}")
 
@@ -448,7 +460,7 @@ class function_definition(_definition):
         name_node = self.node.child_by_field_name('name')
         name = convert_to_ast_node(name_node).to_c()
 
-        definition_node = self.node.child_by_field_name('defination')
+        definition_node = self.node.child_by_field_name('definition')
         definition = convert_to_ast_node(definition_node).to_c()
 
         quantifier_bound_node = self.node.child_by_field_name('quantifier_bound')
@@ -463,6 +475,47 @@ class function_definition(_definition):
         funcs[name] = function
         return f"{name}()"
 
+# PCAL
+class pcal_algorithm_body(_unit):
+    def to_c(self):
+        pass
+
+class pcal_var_decl(variable_declaration):
+    pass
+
+class pcal_algorithm(_unit):
+    def to_c(self):
+        name_node = self.node.child_by_field_name('name')
+        name = convert_to_ast_node(name_node).to_c()
+        
+        var_decl_node = None
+        var_decls = []
+        for child in self.node.children:
+            if child.type == "pcal_var_decls":
+                var_decl_node = child
+                break
+        
+        if var_decl_node:
+            var_decl_nodes = [
+                child for child in var_decl_node.children
+                if child.type == "pcal_var_decl"
+            ]
+            
+            for var_decl in var_decl_nodes:
+                var_decl_node = convert_to_ast_node(var_decl)
+                var_decls.append(var_decl_node.to_c())
+
+        alg_body_node = None
+        for child in self.node.children:
+            if child.type == "pcal_algorithm_body":
+                alg_body_node = child
+                break
+        
+        if not alg_body_node:
+            raise NoValidModuleError(f"No valid algorithm body present")
+        
+        alg_body_node = convert_to_ast_node(alg_body_node)
+        alg_body = alg_body_node.to_c()
 
 class module(_unit):
     def to_c(self):
@@ -486,6 +539,20 @@ class module(_unit):
         for var_dec in var_decs:
             var_dec.to_c()
 
+        pcal_alg_nodes = []
+        for child in self.node.children:
+            if child.type == "block_comment":
+                pcal_alg_nodes.extend([
+                    child2 for child2 in child.children
+                    if child2.type == "pcal_algorithm"
+                ])
+        
+        pcal_algs = []
+        for pcal_alg_node in pcal_alg_nodes:
+            pcal_algs.append(convert_to_ast_node(pcal_alg_node))
+        for pcal_alg in pcal_algs:
+            pcal_alg.to_c()
+                
 class source_file(ast_node):
     def to_c(self):
         module_nodes = [
