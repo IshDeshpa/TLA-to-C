@@ -55,8 +55,6 @@ def evaluate(value):
             expr
         )
     value_expanded = expand_ranges(value)
-    print(value)
-    print(value_expanded)
 
     path = tmp.name
     with open(path, 'r', encoding='utf-8') as f:

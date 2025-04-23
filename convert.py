@@ -17,80 +17,28 @@ def parse_args():
             argp.error(f"{p} does not exist or is not a file.")
     return args
 
-# def read_config_file(cfg_file_name):
-#     r"""
-#     Parses the config file and extracts:
-#       - specification (string): provided on the same line as the keyword SPECIFICATION.
-#       - constants (dict): assignments following the CONSTANT section.
-#       - invariants (list): names listed under the INVARIANT section.
-#       - properties (list): names listed under the PROPERTY section.
-#     Lines starting with '*' (or "\*") are treated as comments.
-#     The key parts can appear in any order.
-#     """
-#     specification = ""
-#     constants = {}
-#     invariants = []
-#     properties = []
-#     current_section = None
-# 
-#     # Open the configuration file.
-#     with open(cfg_file_name, 'r') as f:
-#         for line in f:
-#             # Remove leading/trailing whitespace.
-#             line = line.strip()
-#             if not line:
-#                 continue  # Skip blank lines.
-#             # Skip comment lines that start with '*' or '\*'.
-#             if line.startswith("*") or line.startswith("\\*"):
-#                 continue
-# 
-#             # Check if the line starts with a section header.
-#             tokens = line.split(maxsplit=1)
-#             header = tokens[0].upper()
-#             
-#             # Handle SPECIFICATION (only singular is accepted).
-#             if header == "SPECIFICATION":
-#                 specification = tokens[1].strip() if len(tokens) > 1 else ""
-#                 current_section = None  # One-off value.
-#                 continue
-# 
-#             # Map possible plural or singular forms to a canonical section name.
-#             if header in ("CONSTANT", "CONSTANTS"):
-#                 current_section = "CONSTANT"
-#                 continue
-#             if header in ("INVARIANT", "INVARIANTS"):
-#                 current_section = "INVARIANT"
-#                 continue
-#             if header in ("PROPERTY", "PROPERTIES"):
-#                 current_section = "PROPERTY"
-#                 continue
-# 
-#             # Process the line based on the current section.
-#             if current_section == "CONSTANT":
-#                 # Expect a format like "NP = 5" (with possible extra spaces).
-#                 if '=' in line:
-#                     name, value = line.split('=', 1)
-#                     constants[name.strip()] = value.strip()
-#             elif current_section == "INVARIANT":
-#                 invariants.append(line)
-#             elif current_section == "PROPERTY":
-#                 properties.append(line)
-#             # If no section is active, ignore the line.
-# 
-#     return specification, constants, invariants, properties
+def parse_config(cfg_text):
+    # TODO: Constants is a dictonary where the key is the name of the constant and value is the value in .cfg file
+    # TODO: Invariants are the properties to check in the TLC model checker, thus should be translated to C. It is a list of string names
+    return constants, invariants
 
 def main():
     args = parse_args()
 
     tla_text = args.tla_file.read_text(encoding="utf-8")
     cfg_text = args.config_file.read_text(encoding="utf-8")
+    tla_bytes = args.tla_file.read_bytes()
 
     tlc.setup(str(args.tla_file), str(args.config_file), tla_text, cfg_text)
 
-    result = tlc.evaluate("0..(N-1)")
-    print(result)
+    # TODO: finish parsing of config file. Hardcoding for now with whatever is in Test.cfg
+    # constants, invariants = parse_config(cfg_text)
+    constants = {"N": 10}
+    invariants = ["Double", "Increment", "TestInc", "Init"]
 
-    # tla_parser.parse(tla_text, cfg_text)
+    tla_parser.parse(constants, invariants, tla_bytes)
+
+    # TODO: tla_parser.parse should return stuff. Use it to create C file
 
 if __name__ == "__main__":
     main()
