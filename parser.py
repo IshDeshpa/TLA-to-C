@@ -198,7 +198,7 @@ class bound_infix_op(_expr):
         rhs = convert_to_ast_node(rhs_node)
         rhs = rhs.to_c()
         try:
-            return infixes[symbol](lhs, rhs)
+            return infixes[symbol_node.type](lhs, rhs)
         except KeyError: 
             raise NotImplementedError(f"Unexpected operator: {symbol}")
 
@@ -496,6 +496,85 @@ class function_definition(_definition):
         funcs[name] = function
         return f"{name}()"
 
+# PCAL
+class pcal_assign(_unit):
+    def to_c(self):
+        lhs_node = self.node.children[0].children[0]
+        lhs = convert_to_ast_node(lhs_node)
+        lhs = lhs.to_c()
+        rhs_node = self.node.children[2]
+        rhs = convert_to_ast_node(rhs_node)
+        rhs = rhs.to_c()
+        return f"{lhs} = {rhs};"
+
+class pcal_while(_unit):
+    def to_c(self):
+        return f"while ({convert_to_ast_node(self.node.children[1]).to_c()}) {{ \
+            {convert_to_ast_node(self.node.children[3]).to_c()} \
+        }}"
+
+class pcal_algorithm_body(_unit):
+    def to_c(self):
+        statements = []
+        # if self.node.child_by_field_name('label'):
+        #     print("label found")
+
+        for child in self.node.children:
+            if child.type in ["pcal_while"]:
+                statement = convert_to_ast_node(child)
+                statements.append(statement.to_c())
+
+        return "\n".join(statements)
+
+class pcal_var_decl(variable_declaration):
+    pass
+
+class pcal_algorithm(_unit):
+    def to_c(self):
+        global func_counter
+        name_node = self.node.child_by_field_name('name')
+        name = convert_to_ast_node(name_node).to_c()
+        
+        var_decl_node = None
+        var_decls = []
+        for child in self.node.children:
+            if child.type == "pcal_var_decls":
+                var_decl_node = child
+                break
+        
+        if var_decl_node:
+            var_decl_nodes = [
+                child for child in var_decl_node.children
+                if child.type == "pcal_var_decl"
+            ]
+            
+            for var_decl in var_decl_nodes:
+                var_decl_node = convert_to_ast_node(var_decl)
+                var_decls.append(var_decl_node.to_c())
+
+        alg_body_node = None
+        for child in self.node.children:
+            if child.type == "pcal_algorithm_body":
+                alg_body_node = child
+                break
+        
+        if not alg_body_node:
+            raise NoValidModuleError(f"No valid algorithm body present")
+        
+        alg_body_node = convert_to_ast_node(alg_body_node)
+        alg_body = alg_body_node.to_c()
+
+        name_node = self.node.parent.child_by_field_name('name')
+        if name_node:
+            name = name_node.text.decode("utf-8")
+        else:
+            name = f"func_{func_counter}"
+            func_counter += 1
+        
+        return (f"{name}() {{\n" + 
+                alg_body + "\n" + 
+                "}\n")
+
 
 # TODO: CHECK STOP ===================================================================
 
@@ -543,6 +622,23 @@ class module(_unit):
             const_decs.append(convert_to_ast_node(const_dec_node))
         for const_dec in const_decs:
             const_dec.to_c()
+
+        pcal_alg_nodes = []
+        for child in self.node.children:
+            if child.type == "block_comment":
+                pcal_alg_nodes.extend([
+                    child2 for child2 in child.children
+                    if child2.type == "pcal_algorithm"
+                ])
+        
+        pcal_algs = []
+        for pcal_alg_node in pcal_alg_nodes:
+            pcal_algs.append(convert_to_ast_node(pcal_alg_node))
+        for pcal_alg in pcal_algs:
+            pcal_alg.to_c()
+
+        # TODO: add pcal alg(s) as functions here
+
 
 class source_file(ast_node):
     def to_c(self):
