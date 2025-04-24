@@ -36,6 +36,9 @@ prefixes = {
     "lnot":         lambda x: f"!({x})",
     "negative":     lambda x: f"-{x}",
     "negative_dot": lambda x: f"-{x}",
+    "!":         lambda x: f"!({x})",
+    "-":     lambda x: f"-{x}",
+    "-.":     lambda x: f"-{x}",
 }
 
 infixes = {
@@ -66,7 +69,20 @@ infixes = {
     "mulmul":    lambda a, b: f"({a}) * ({b})",
     "times":     lambda a, b: f"({a}) * ({b})",
     "*":         lambda a, b: f"({a}) * ({b})",
-    "=":         lambda a, b: _record_definition(a, b),
+    "=":         lambda a, b: f"({a}) == ({b})",
+    "||":        lambda a, b: f"({a}) || ({b})",
+    "&&":        lambda a, b: f"({a}) && ({b})",
+    "==":        lambda a, b: f"({a}) == ({b})",
+    "!=":        lambda a, b: f"({a}) != ({b})",
+    "<":         lambda a, b: f"({a}) < ({b})",
+    ">":         lambda a, b: f"({a}) > ({b})",
+    "<=":        lambda a, b: f"({a}) <= ({b})",
+    ">=":        lambda a, b: f"({a}) >= ({b})",
+    "%":         lambda a, b: f"({a}) % ({b})",
+    "|":         lambda a, b: f"({a}) | ({b})",
+    "&":         lambda a, b: f"({a}) & ({b})",
+    "-":         lambda a, b: f"({a}) - ({b})",
+    "+":         lambda a, b: f"({a}) + ({b})",
 }
 
 postfixes = {}
@@ -140,8 +156,6 @@ class identifier_ref(identifier):
 class word(identifier):
     pass
 
-# TODO: CHECK START ===================================================================
-
 class bound_op(_expr):
     def to_c(self):
         name_node = self.node.child_by_field_name('name')
@@ -198,7 +212,7 @@ class bound_infix_op(_expr):
         rhs = convert_to_ast_node(rhs_node)
         rhs = rhs.to_c()
         try:
-            return infixes[symbol_node.type](lhs, rhs)
+            return infixes[symbol](lhs, rhs)
         except KeyError: 
             raise NotImplementedError(f"Unexpected operator: {symbol}")
 
@@ -224,31 +238,34 @@ class exists(ast_node):
 
 class quantifier_bound(ast_node):
     def to_c(self):
-        value = self.node.text.decode("utf-8")
-        result = tlc.evaluate(value)
-        return result
-        # identifier_node = self.node.children[0]
-        # identifier = convert_to_ast_node(identifier_node)
-        # identifier = identifier.to_c()
-        # _set_node = self.node.children[2]
-        # _set = _set_node.text.decode("utf-8")
-        # return {
-        #     "identifier": identifier,
-        #     "set": _set,
-        # }
+        if self.node.children[0].type == "identifier":
+            _set_node = self.node.children[2]
+            _set = _set_node.text.decode("utf-8")
+            result = tlc.evaluate(_set)
+            return result
+
+        if self.node.children[0].type == "tuple_of_identifiers":
+            raise NotImplementedError("tuple_of_identifiers not supported yet")
+        else:
+            raise RuntimeError("Incorrect type for quantifier_bound node")
 
 class bounded_quantification(_expr):
     def to_c(self):
         global func_counter
+        import pdb; pdb.set_trace()
+
         quantifier_node = self.node.child_by_field_name('quantifier')
         quantifier = convert_to_ast_node(quantifier_node)
         quantifier = quantifier.to_c()
+
         bound_node = self.node.child_by_field_name('bound')
         bound = convert_to_ast_node(bound_node)
         bound = bound.to_c()
+
         expression_node = self.node.child_by_field_name('expression')
         expression = convert_to_ast_node(expression_node)
         expression = expression.to_c()
+
         function = func(quantifier, bound, expression)
         name_node = self.node.parent.child_by_field_name('name')
         if name_node:
@@ -295,15 +312,15 @@ class finite_set_literal(_expr):
 
 class set_filter(_expr):
     def to_c(self):
-        text = self.node.text.decode("utf-8")
-        values = eval_TLC(text)
-        return values
+        value = self.node.text.decode("utf-8")
+        result = tlc.evaluate(value)
+        return result
 
 class set_map(_expr):
     def to_c(self):
-        text = self.node.text.decode("utf-8")
-        values = eval_TLC(text)
-        return values
+        value = self.node.text.decode("utf-8")
+        result = tlc.evaluate(value)
+        return result
 
 class function_evaluation(_expr):
     def to_c(self):
@@ -338,9 +355,9 @@ class function_evaluation(_expr):
 
 class function_literal(_expr):
     def to_c(self):
-        text = self.node.text.decode("utf-8")
-        values = eval_TLC(text)
-        return values
+        value = self.node.text.decode("utf-8")
+        result = tlc.evaluate(value)
+        return result
 
 class record_literal(_expr):
     def to_c(self):
@@ -389,16 +406,16 @@ class if_then_else(_expr):
         _then = convert_to_ast_node(_then_node)
         _else_node = self.node.children[5]
         _else = convert_to_ast_node(_else_node)
-        return f"({_if.to_eval()}) ? {then.to_c()} : {_else.to_c()}"
+        return f"({_if.to_c()}) ? {_then.to_c()} : {_else.to_c()}"
 
-class tuple_of_identifiers(_expr):
-    def to_c(self):
-        elements = []
-        valid_children = [child for child in self.node.children if child.type not in ("langle_bracket", "rangle_bracket", ",")]
-        for child in valid_children:
-            elem = convert_to_ast_node(child)
-            elements.append(elem.to_c())
-        return "{" + ", ".join(elements) + "}"
+# class tuple_of_identifiers(_expr):
+#     def to_c(self):
+#         elements = []
+#         valid_children = [child for child in self.node.children if child.type not in ("langle_bracket", "rangle_bracket", ",")]
+#         for child in valid_children:
+#             elem = convert_to_ast_node(child)
+#             elements.append(elem.to_c())
+#         return "{" + ", ".join(elements) + "}"
 
 class _unit(ast_node):
     pass
@@ -418,7 +435,6 @@ class variable_declaration(_unit):
 
 class constant_declaration(_unit):
     def to_c(self):
-        pdb.set_trace()
         id_nodes = [
             ch for ch in self.node.children[1:]
             if not (ch.type == ',' or ch.type == 'comma')
@@ -465,7 +481,6 @@ class operator_definition(_definition):
 
 class function_definition(_definition):
     def to_c(self):
-        # TODO: Broken because TLC won't evaluate sets correctly for some reason (inserts ghost operators?)
         name_node = self.node.child_by_field_name('name')
         name = convert_to_ast_node(name_node).to_c()
 
@@ -575,9 +590,6 @@ class pcal_algorithm(_unit):
                 alg_body + "\n" + 
                 "}\n")
 
-
-# TODO: CHECK STOP ===================================================================
-
 class module(_unit):
     def to_c(self):
         op_def_nodes = [
@@ -638,7 +650,6 @@ class module(_unit):
             pcal_alg.to_c()
 
         # TODO: add pcal alg(s) as functions here
-
 
 class source_file(ast_node):
     def to_c(self):

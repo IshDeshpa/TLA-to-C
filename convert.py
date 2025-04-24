@@ -3,7 +3,6 @@ import argparse
 from pathlib import Path
 import tlc
 import parser as tla_parser
-import re
 
 def parse_args():
     argp = argparse.ArgumentParser(
@@ -34,12 +33,8 @@ def main():
 
     # TODO: finish parsing of config file. Hardcoding for now with whatever is in Test.cfg
     # constants, invariants = parse_config(cfg_text)
-    constants = {"N": 10}
-    invariants = ["Double", "Increment", "TestInc", "Init"]
-    
-    tla_text = tla_bytes.decode("utf-8")
-    tla_text = re.sub(r"(?ms)^\\* BEGIN TRANSLATION.*?^\\* END TRANSLATION.*?\n", "", tla_text)
-    tla_bytes = tla_text.encode("utf-8")
+    constants = {"N": 5}
+    invariants = ["SetLit", "AllPositive", "ExistsEven", "SomeEven"]
     
     tla_parser.parse(constants, invariants, tla_bytes)
 

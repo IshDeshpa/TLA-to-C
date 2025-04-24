@@ -1,5 +1,7 @@
 import re, tempfile, subprocess
 from pathlib import Path
+import ast
+import json
 
 tmp = None
 tmp_print_idx = None
@@ -86,4 +88,19 @@ def evaluate(value):
         printed = printed[:-5]
     only_expr = printed.strip()
 
-    return only_expr
+    elements_syntax = only_expr.replace("{", "[").replace("}", "]").replace("<<", "[").replace(">>", "]").replace("TRUE", "True").replace("FALSE", "False")
+    elements = ast.literal_eval(elements_syntax)
+
+    def stringify(obj):
+        if isinstance(obj, list):
+            inner = ", ".join(stringify(el) for el in obj)
+            return f"[{inner}]"
+        elif isinstance(obj, str):
+            return json.dumps(obj)
+        else:
+            return str(obj)
+
+    elements_string = stringify(elements)
+    result = elements_string.replace("[", "{").replace("]", "}").replace("True", "true").replace("False", "false")
+
+    return result
