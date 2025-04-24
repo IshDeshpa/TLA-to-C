@@ -2,7 +2,6 @@ import tree_sitter_tlaplus as tstla
 from tree_sitter import Language, Parser
 from abc import ABC, abstractmethod
 import tlc
-import pdb
 
 TLAPLUS_LANGUAGE = Language(tstla.language())
 
@@ -12,21 +11,77 @@ invariants = []
 definitions = {}
 variables = []
 constants = {}
-funcs = {}
+funcs = []
+bounds = {}
+
+forall_template = """
+bool <NAME>() {
+    for (size_t <ID> = 0; <ID> < sizeof(<NAME>_set)/sizeof(<NAME>_set[0]); <ID>++) {
+        if (!(<EXPR>)) return false;
+    }
+    return true;
+}
+"""
+
+exists_template = """
+bool <NAME>() {
+    for (size_t <ID> = 0; <ID> < sizeof(<NAME>_set)/sizeof(<NAME>_set[0]); <ID>++) {
+        if (<EXPR>) return true;
+    }
+    return false;
+}
+"""
 
 class func:
-    def __init__(self, kind, bound, expr):
+    def __init__(self, name, kind, identifier, _set, expr):
+        self.name = name
         self.kind = kind
-        self.bound = bound
+        self._set = _set
+        self.identifier = identifier
         self.expr = expr
 
+    def infer_ctype(self):
+        m = re.match(r'\{\s*([^,}]+)', self._set)
+        first = m.group(1).strip() if m else ""
+
+        if first in ("TRUE", "FALSE"):
+            return "bool"
+        if first.startswith('"') and first.endswith('"'):
+            return "const char*"
+        if re.fullmatch(r'-?\d+', first):
+            return "int"
+        raise ValueError(f"Cannot infer C type for bound element: {first!r}")
+
     def to_c(self):
-        # TODO: Use class members to complete a template which is of C code
-        # if kind is forall, then check expr on everything in the bound and pass if all ture
-        # if kind is exists, then check expr on everything in bound and pass if one is true
-        # if choice, choose randomly from bound and apply expr
-        # if func, run everything in the bound to the expr and return values
-        pass
+        if self.kind == "forall":
+            ctype = self.infer_ctype()
+            bounds[self.name] = f"{ctype} {self.name}_set[] = {self._set}"
+
+            code = forall_template
+            code = code.replace("<NAME>", self.name)
+            code = code.replace("<ID>", self.identifier)
+            code = code.replace("<EXPR>", self.expr)
+            return code.strip()
+
+
+        elif self.kind == "exists":
+            ctype = self.infer_ctype()
+            bounds[self.name] = f"{ctype} {self.name}_set[] = {self._set}"
+
+            code = exists_template
+            code = code.replace("<NAME>", self.name)
+            code = code.replace("<ID>", self.identifier)
+            code = code.replace("<EXPR>", self.expr)
+            return code.strip()
+
+        elif self.kind == "choose":
+            raise ValueError(f"{self.kind} func type not supported yet")
+
+        elif self.kind == "func":
+            raise ValueError(f"{self.kind} func type not supported yet")
+
+        else:
+            raise RuntimeError(f"Function kind is wrong: {self.kind}")
 
 def _record_definition(a, b):
     definitions[a] = b
@@ -36,9 +91,9 @@ prefixes = {
     "lnot":         lambda x: f"!({x})",
     "negative":     lambda x: f"-{x}",
     "negative_dot": lambda x: f"-{x}",
-    "!":         lambda x: f"!({x})",
-    "-":     lambda x: f"-{x}",
-    "-.":     lambda x: f"-{x}",
+    "!":            lambda x: f"!({x})",
+    "-":            lambda x: f"-{x}",
+    "-.":           lambda x: f"-{x}",
 }
 
 infixes = {
@@ -83,6 +138,7 @@ infixes = {
     "&":         lambda a, b: f"({a}) & ({b})",
     "-":         lambda a, b: f"({a}) - ({b})",
     "+":         lambda a, b: f"({a}) + ({b})",
+    "=>":        lambda a, b: f"!({a}) || ({b})",
 }
 
 postfixes = {}
@@ -143,7 +199,7 @@ class parentheses(_expr):
     def to_c(self):
         inner_expr_node = self.node.children[1]
         inner_expr = convert_to_ast_node(inner_expr_node)
-        inner_expr_val = self.inner_expr.to_c()
+        inner_expr_val = inner_expr.to_c()
         return inner_expr_val
 
 class identifier(_expr):
@@ -228,6 +284,17 @@ class bound_postfix_op(_expr):
         except KeyError: 
             raise NotImplementedError(f"Unexpected operator: {symbol}")
 
+
+class conj_list(_expr):
+    def to_c(self):
+        elements = []
+        items = [child for child in self.node.children if child.type == "conj_item"]
+        for item in items:
+            op_node = item.children[1]
+            op = convert_to_ast_node(op_node)
+            elements.append(op.to_c())
+        return f"(1 {' && '.join(elements)})"
+
 class forall(ast_node):
     def to_c(self):
         return "forall"
@@ -239,10 +306,14 @@ class exists(ast_node):
 class quantifier_bound(ast_node):
     def to_c(self):
         if self.node.children[0].type == "identifier":
+            identifier_node = self.node.children[0]
+            identifier = convert_to_ast_node(identifier_node)
+            identifier = identifier.to_c()
+
             _set_node = self.node.children[2]
             _set = _set_node.text.decode("utf-8")
             result = tlc.evaluate(_set)
-            return result
+            return identifier, result
 
         if self.node.children[0].type == "tuple_of_identifiers":
             raise NotImplementedError("tuple_of_identifiers not supported yet")
@@ -252,7 +323,6 @@ class quantifier_bound(ast_node):
 class bounded_quantification(_expr):
     def to_c(self):
         global func_counter
-        import pdb; pdb.set_trace()
 
         quantifier_node = self.node.child_by_field_name('quantifier')
         quantifier = convert_to_ast_node(quantifier_node)
@@ -260,20 +330,20 @@ class bounded_quantification(_expr):
 
         bound_node = self.node.child_by_field_name('bound')
         bound = convert_to_ast_node(bound_node)
-        bound = bound.to_c()
-
+        identifier, _set = bound.to_c()
+    
         expression_node = self.node.child_by_field_name('expression')
         expression = convert_to_ast_node(expression_node)
         expression = expression.to_c()
 
-        function = func(quantifier, bound, expression)
         name_node = self.node.parent.child_by_field_name('name')
         if name_node:
             name = name_node.text.decode("utf-8")
         else:
             name = f"func_{func_counter}"
             func_counter += 1
-        funcs[name] = function
+        function = func(name, quantifier, identifier, bound, expression)
+        funcs.append(function)
         return f"{name}()"
 
 class choose(_expr):
@@ -290,14 +360,14 @@ class choose(_expr):
         expression_node = self.node.child_by_field_name('expression')
         expression = convert_to_ast_node(expression_node)
         expression = expression.to_c()
-        function = func("choose", bound, expression)
         name_node = self.node.parent.child_by_field_name('name')
         if name_node:
             name = name_node.text.decode("utf-8")
         else:
             name = f"func_{func_counter}"
             func_counter += 1
-        funcs[name] = function
+        function = func(name, "choose", bound, expression)
+        funcs.append(function)
         return f"{name}()"
 
 
@@ -506,9 +576,9 @@ class function_definition(_definition):
             qb_vals.append(qb.to_c())
 
         quantifier_str = ", ".join(qb_vals)
-        function = func("func", quantifier_str, definition)
+        function = func(name, "func", quantifier_str, definition)
 
-        funcs[name] = function
+        funcs.append(function)
         return f"{name}()"
 
 # PCAL
@@ -647,7 +717,7 @@ class module(_unit):
         for pcal_alg_node in pcal_alg_nodes:
             pcal_algs.append(convert_to_ast_node(pcal_alg_node))
         for pcal_alg in pcal_algs:
-            pcal_alg.to_c()
+            print(pcal_alg.to_c())
 
         # TODO: add pcal alg(s) as functions here
 
@@ -676,9 +746,11 @@ def parse(_constants, _invariants, tla_bytes):
     converted_root_node = convert_to_ast_node(tree.root_node)
     converted_root_node.to_c()
 
+    print(f"Invariants: {invariants}")
     print(f"Definitions: {definitions}")
     print(f"Variables: {variables}")
     print(f"Constants: {constants}")
     print(f"Functions: {funcs}")
+    print(f"Bounds: {bounds}")
 
     # TODO: Return everything you have for later

@@ -3,6 +3,8 @@ import argparse
 from pathlib import Path
 import tlc
 import parser as tla_parser
+import re
+import ast
 
 def parse_args():
     argp = argparse.ArgumentParser(
@@ -18,8 +20,53 @@ def parse_args():
     return args
 
 def parse_config(cfg_text):
-    # TODO: Constants is a dictonary where the key is the name of the constant and value is the value in .cfg file
-    # TODO: Invariants are the properties to check in the TLC model checker, thus should be translated to C. It is a list of string names
+    constants = {}
+    invariants = []
+    in_const_block = False
+    in_inv_block = False
+
+    for raw_line in cfg_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+
+        m = re.match(r'^CONSTANTS?\s+([A-Za-z_]\w*)\s*=\s*(.+)$', line)
+        if m:
+            name, val_txt = m.group(1), m.group(2).strip()
+            try:
+                value = ast.literal_eval(val_txt)
+            except Exception:
+                value = val_txt
+            constants[name] = value
+            continue
+
+        if line == "CONSTANT" or line == "CONSTANTS":
+            in_const_block = True
+            in_inv_block = False
+            continue
+
+        if line == "INVARIANT" or line == "INVARIANTS":
+            in_inv_block = True
+            in_const_block = False
+            continue
+
+        if line.startswith(("SPECIFICATION", "INIT", "NEXT", "PROPERTY")):
+            in_const_block = in_inv_block = False
+            continue
+
+        if in_const_block and '=' in line:
+            name, val_txt = (part.strip() for part in line.split('=', 1))
+            try:
+                value = ast.literal_eval(val_txt)
+            except Exception:
+                value = val_txt
+            constants[name] = value
+            continue
+
+        if in_inv_block:
+            invariants.append(line)
+            continue
+
     return constants, invariants
 
 def main():
@@ -31,10 +78,7 @@ def main():
 
     tlc.setup(str(args.tla_file), str(args.config_file), tla_text, cfg_text)
 
-    # TODO: finish parsing of config file. Hardcoding for now with whatever is in Test.cfg
-    # constants, invariants = parse_config(cfg_text)
-    constants = {"N": 5}
-    invariants = ["SetLit", "AllPositive", "ExistsEven", "SomeEven"]
+    constants, invariants = parse_config(cfg_text)
     
     tla_parser.parse(constants, invariants, tla_bytes)
 
